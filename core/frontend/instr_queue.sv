@@ -58,7 +58,7 @@ module instr_queue
     // Instruction - instr_realign
     input logic [CVA6Cfg.INSTR_PER_FETCH-1:0][31:0] instr_i,
     // Instruction address - instr_realign
-    input logic [CVA6Cfg.INSTR_PER_FETCH-1:0][riscv::VLEN-1:0] addr_i,
+    input logic [CVA6Cfg.INSTR_PER_FETCH-1:0][CVA6Cfg.VLEN-1:0] addr_i,
     // Instruction is valid - instr_realign
     input logic [CVA6Cfg.INSTR_PER_FETCH-1:0] valid_i,
     // Handshake’s ready with CACHE - CACHE
@@ -68,15 +68,18 @@ module instr_queue
     // Exception (which is page-table fault) - CACHE
     input ariane_pkg::frontend_exception_t exception_i,
     // Exception address - CACHE
-    input logic [riscv::VLEN-1:0] exception_addr_i,
+    input logic [CVA6Cfg.VLEN-1:0] exception_addr_i,
+    input logic [CVA6Cfg.GPLEN-1:0] exception_gpaddr_i,
+    input logic [31:0] exception_tinst_i,
+    input logic exception_gva_i,
     // Branch predict - FRONTEND
-    input logic [riscv::VLEN-1:0] predict_address_i,
+    input logic [CVA6Cfg.VLEN-1:0] predict_address_i,
     // Instruction predict address - FRONTEND
     input ariane_pkg::cf_t [CVA6Cfg.INSTR_PER_FETCH-1:0] cf_type_i,
     // Replay instruction because one of the FIFO was  full - FRONTEND
     output logic replay_o,
     // Address at which to replay the fetch - FRONTEND
-    output logic [riscv::VLEN-1:0] replay_addr_o,
+    output logic [CVA6Cfg.VLEN-1:0] replay_addr_o,
     // Handshake’s data with ID_STAGE - ID_STAGE
     output fetch_entry_t fetch_entry_o,
     // Handshake’s valid with ID_STAGE - ID_STAGE
@@ -86,10 +89,13 @@ module instr_queue
 );
 
   typedef struct packed {
-    logic [31:0]                     instr;     // instruction word
-    ariane_pkg::cf_t                 cf;        // branch was taken
-    ariane_pkg::frontend_exception_t ex;        // exception happened
-    logic [riscv::VLEN-1:0]          ex_vaddr;  // lower VLEN bits of tval for exception
+    logic [31:0]                     instr;      // instruction word
+    ariane_pkg::cf_t                 cf;         // branch was taken
+    ariane_pkg::frontend_exception_t ex;         // exception happened
+    logic [CVA6Cfg.VLEN-1:0]         ex_vaddr;   // lower VLEN bits of tval for exception
+    logic [CVA6Cfg.GPLEN-1:0]        ex_gpaddr;  // lower GPLEN bits of tval2 for exception
+    logic [31:0]                     ex_tinst;   // tinst of exception
+    logic                            ex_gva;
   } instr_data_t;
 
   logic [CVA6Cfg.LOG2_INSTR_PER_FETCH-1:0] branch_index;
@@ -105,7 +111,7 @@ ariane_pkg::FETCH_FIFO_DEPTH
   logic                                            instr_overflow;
   // address queue
   logic [$clog2(ariane_pkg::FETCH_FIFO_DEPTH)-1:0] address_queue_usage;
-  logic [                         riscv::VLEN-1:0] address_out;
+  logic [                        CVA6Cfg.VLEN-1:0] address_out;
   logic                                            pop_address;
   logic                                            push_address;
   logic                                            full_address;
@@ -116,7 +122,7 @@ ariane_pkg::FETCH_FIFO_DEPTH
   // Registers
   // output FIFO select, one-hot
   logic [CVA6Cfg.INSTR_PER_FETCH-1:0] idx_ds_d, idx_ds_q;
-  logic [riscv::VLEN-1:0] pc_d, pc_q;  // current PC
+  logic [CVA6Cfg.VLEN-1:0] pc_d, pc_q;  // current PC
   logic reset_address_d, reset_address_q;  // we need to re-set the address because of a flush
 
   logic [CVA6Cfg.INSTR_PER_FETCH*2-2:0] branch_mask_extended;
@@ -203,10 +209,19 @@ ariane_pkg::FETCH_FIFO_DEPTH
     // shift the inputs
     for (genvar i = 0; i < CVA6Cfg.INSTR_PER_FETCH; i++) begin : gen_fifo_input_select
       /* verilator lint_off WIDTH */
-      assign instr_data_in[i].instr = instr[i+idx_is_q];
-      assign instr_data_in[i].cf = cf[i+idx_is_q];
+      assign instr_data_in[i].instr = instr[CVA6Cfg.INSTR_PER_FETCH+i-idx_is_q];
+      assign instr_data_in[i].cf = cf[CVA6Cfg.INSTR_PER_FETCH+i-idx_is_q];
       assign instr_data_in[i].ex = exception_i;  // exceptions hold for the whole fetch packet
       assign instr_data_in[i].ex_vaddr = exception_addr_i;
+      if (CVA6Cfg.RVH) begin : gen_hyp_ex_with_C
+        assign instr_data_in[i].ex_gpaddr = exception_gpaddr_i;
+        assign instr_data_in[i].ex_tinst = exception_tinst_i;
+        assign instr_data_in[i].ex_gva = exception_gva_i;
+      end else begin : gen_no_hyp_ex_with_C
+        assign instr_data_in[i].ex_gpaddr = '0;
+        assign instr_data_in[i].ex_tinst = '0;
+        assign instr_data_in[i].ex_gva = 1'b0;
+      end
       /* verilator lint_on WIDTH */
     end
   end else begin : gen_multiple_instr_per_fetch_without_C
@@ -236,6 +251,15 @@ ariane_pkg::FETCH_FIFO_DEPTH
     assign instr_data_in[0].cf = cf_type_i[0];
     assign instr_data_in[0].ex = exception_i;  // exceptions hold for the whole fetch packet
     assign instr_data_in[0].ex_vaddr = exception_addr_i;
+    if (CVA6Cfg.RVH) begin : gen_hyp_ex_without_C
+      assign instr_data_in[0].ex_gpaddr = exception_gpaddr_i;
+      assign instr_data_in[0].ex_tinst = exception_tinst_i;
+      assign instr_data_in[0].ex_gva = exception_gva_i;
+    end else begin : gen_no_hyp_ex_without_C
+      assign instr_data_in[0].ex_gpaddr = '0;
+      assign instr_data_in[0].ex_tinst = '0;
+      assign instr_data_in[0].ex_gva = 1'b0;
+    end
     /* verilator lint_on WIDTH */
   end
 
@@ -284,6 +308,9 @@ ariane_pkg::FETCH_FIFO_DEPTH
       fetch_entry_o.ex.cause = '0;
 
       fetch_entry_o.ex.tval = '0;
+      fetch_entry_o.ex.tval2 = '0;
+      fetch_entry_o.ex.gva = 1'b0;
+      fetch_entry_o.ex.tinst = '0;
       fetch_entry_o.branch_predict.predict_address = address_out;
       fetch_entry_o.branch_predict.cf = ariane_pkg::NoCF;
       // output mux select
@@ -291,6 +318,8 @@ ariane_pkg::FETCH_FIFO_DEPTH
         if (idx_ds_q[i]) begin
           if (instr_data_out[i].ex == ariane_pkg::FE_INSTR_ACCESS_FAULT) begin
             fetch_entry_o.ex.cause = riscv::INSTR_ACCESS_FAULT;
+          end else if (CVA6Cfg.RVH && instr_data_out[i].ex == ariane_pkg::FE_INSTR_GUEST_PAGE_FAULT) begin
+            fetch_entry_o.ex.cause = riscv::INSTR_GUEST_PAGE_FAULT;
           end else begin
             fetch_entry_o.ex.cause = riscv::INSTR_PAGE_FAULT;
           end
@@ -298,8 +327,13 @@ ariane_pkg::FETCH_FIFO_DEPTH
           fetch_entry_o.ex.valid = instr_data_out[i].ex != ariane_pkg::FE_NONE;
           if (CVA6Cfg.TvalEn)
             fetch_entry_o.ex.tval = {
-              {(riscv::XLEN - riscv::VLEN) {1'b0}}, instr_data_out[i].ex_vaddr
+              {(CVA6Cfg.XLEN - CVA6Cfg.VLEN) {1'b0}}, instr_data_out[i].ex_vaddr
             };
+          if (CVA6Cfg.RVH) begin
+            fetch_entry_o.ex.tval2 = instr_data_out[i].ex_gpaddr;
+            fetch_entry_o.ex.tinst = instr_data_out[i].ex_tinst;
+            fetch_entry_o.ex.gva   = instr_data_out[i].ex_gva;
+          end
           fetch_entry_o.branch_predict.cf = instr_data_out[i].cf;
           pop_instr[i] = fetch_entry_valid_o & fetch_entry_ready_i;
         end
@@ -323,8 +357,18 @@ ariane_pkg::FETCH_FIFO_DEPTH
         fetch_entry_o.ex.cause = riscv::INSTR_PAGE_FAULT;
       end
       if (CVA6Cfg.TvalEn)
-        fetch_entry_o.ex.tval = {{64 - riscv::VLEN{1'b0}}, instr_data_out[0].ex_vaddr};
+        fetch_entry_o.ex.tval = {{64 - CVA6Cfg.VLEN{1'b0}}, instr_data_out[0].ex_vaddr};
       else fetch_entry_o.ex.tval = '0;
+      if (CVA6Cfg.RVH) begin
+        fetch_entry_o.ex.tval2 = instr_data_out[0].ex_gpaddr;
+        fetch_entry_o.ex.tinst = instr_data_out[0].ex_tinst;
+        fetch_entry_o.ex.gva   = instr_data_out[0].ex_gva;
+      end else begin
+        fetch_entry_o.ex.tval2 = '0;
+        fetch_entry_o.ex.tinst = '0;
+        fetch_entry_o.ex.gva   = 1'b0;
+      end
+
       fetch_entry_o.branch_predict.predict_address = address_out;
       fetch_entry_o.branch_predict.cf = instr_data_out[0].cf;
 
@@ -367,10 +411,10 @@ ariane_pkg::FETCH_FIFO_DEPTH
   for (genvar i = 0; i < CVA6Cfg.INSTR_PER_FETCH; i++) begin : gen_instr_fifo
     // Make sure we don't save any instructions if we couldn't save the address
     assign push_instr_fifo[i] = push_instr[i] & ~address_overflow;
-    fifo_v3 #(
+    cva6_fifo_v3 #(
         .DEPTH  (ariane_pkg::FETCH_FIFO_DEPTH),
         .dtype  (instr_data_t),
-        .FPGA_EN(CVA6Cfg.FPGA_EN)
+        .FPGA_EN(CVA6Cfg.FpgaEn)
     ) i_fifo_instr_data (
         .clk_i     (clk_i),
         .rst_ni    (rst_ni),
@@ -395,10 +439,10 @@ ariane_pkg::FETCH_FIFO_DEPTH
     end
   end
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .DEPTH     (ariane_pkg::FETCH_FIFO_DEPTH),  // TODO(zarubaf): Fork out to separate param
-      .DATA_WIDTH(riscv::VLEN),
-      .FPGA_EN   (CVA6Cfg.FPGA_EN)
+      .DATA_WIDTH(CVA6Cfg.VLEN),
+      .FPGA_EN   (CVA6Cfg.FpgaEn)
   ) i_fifo_address (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),

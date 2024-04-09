@@ -23,9 +23,10 @@ package cva6_config_pkg;
   localparam CVA6ConfigZcbExtEn = 0;
   localparam CVA6ConfigZcmpExtEn = 0;
   localparam CVA6ConfigAExtEn = 1;
+  localparam CVA6ConfigHExtEn = 0;  // always disabled
   localparam CVA6ConfigBExtEn = 0;
   localparam CVA6ConfigVExtEn = 0;
-  localparam CVA6ConfigZiCondExtEn = 0;
+  localparam CVA6ConfigRVZiCond = 0;
 
   localparam CVA6ConfigAxiIdWidth = 4;
   localparam CVA6ConfigAxiAddrWidth = 64;
@@ -47,10 +48,11 @@ package cva6_config_pkg;
 
   localparam CVA6ConfigWtDcacheWbufDepth = 2;
 
+  localparam CVA6ConfigSuperscalarEn = 0;
   localparam CVA6ConfigNrCommitPorts = 1;
   localparam CVA6ConfigNrScoreboardEntries = 4;
 
-  localparam CVA6ConfigFPGAEn = 1;
+  localparam CVA6ConfigFpgaEn = 1;
 
   localparam CVA6ConfigNrLoadPipeRegs = 1;
   localparam CVA6ConfigNrStorePipeRegs = 0;
@@ -76,7 +78,8 @@ package cva6_config_pkg;
   localparam CVA6ConfigRvfiTrace = 1;
 
   localparam config_pkg::cva6_user_cfg_t cva6_cfg = '{
-      FPGA_EN: bit'(CVA6ConfigFPGAEn),
+      XLEN: unsigned'(CVA6ConfigXlen),
+      FpgaEn: bit'(CVA6ConfigFpgaEn),
       NrCommitPorts: unsigned'(CVA6ConfigNrCommitPorts),
       AxiAddrWidth: unsigned'(CVA6ConfigAxiAddrWidth),
       AxiDataWidth: unsigned'(CVA6ConfigAxiDataWidth),
@@ -92,11 +95,12 @@ package cva6_config_pkg;
       RVB: bit'(CVA6ConfigBExtEn),
       RVV: bit'(CVA6ConfigVExtEn),
       RVC: bit'(CVA6ConfigCExtEn),
+      RVH: bit'(CVA6ConfigHExtEn),
       RVZCB: bit'(CVA6ConfigZcbExtEn),
       RVZCMP: bit'(CVA6ConfigZcmpExtEn),
       XFVec: bit'(CVA6ConfigFVecEn),
       CvxifEn: bit'(CVA6ConfigCvxifEn),
-      ZiCondExtEn: bit'(CVA6ConfigZiCondExtEn),
+      RVZiCond: bit'(CVA6ConfigRVZiCond),
       NrScoreboardEntries: unsigned'(CVA6ConfigNrScoreboardEntries),
       RVS: bit'(1),
       RVU: bit'(1),
@@ -112,25 +116,13 @@ package cva6_config_pkg;
       PMPAddrRstVal: {16{64'h0}},
       PMPEntryReadOnly: 16'd0,
       NOCType: config_pkg::NOC_TYPE_AXI4_ATOP,
-      // idempotent region
-      NrNonIdempotentRules:
-      unsigned'(
-      2
-      ),
+      NrNonIdempotentRules: unsigned'(2),
       NonIdempotentAddrBase: 1024'({64'b0, 64'b0}),
       NonIdempotentLength: 1024'({64'b0, 64'b0}),
       NrExecuteRegionRules: unsigned'(3),
-      //                      DRAM,          Boot ROM,   Debug Module
-      ExecuteRegionAddrBase:
-      1024'(
-      {64'h8000_0000, 64'h1_0000, 64'h0}
-      ),
+      ExecuteRegionAddrBase: 1024'({64'h8000_0000, 64'h1_0000, 64'h0}),
       ExecuteRegionLength: 1024'({64'h40000000, 64'h10000, 64'h1000}),
-      // cached region
-      NrCachedRegionRules:
-      unsigned'(
-      1
-      ),
+      NrCachedRegionRules: unsigned'(1),
       CachedRegionAddrBase: 1024'({64'h8000_0000}),
       CachedRegionLength: 1024'({64'h40000000}),
       MaxOutstandingStores: unsigned'(7),

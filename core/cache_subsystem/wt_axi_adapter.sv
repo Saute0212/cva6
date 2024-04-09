@@ -138,10 +138,10 @@ module wt_axi_adapter
   always_comb begin : p_axi_req
     // write channel
     axi_wr_id_in = {{CVA6Cfg.AxiIdWidth-1{1'b0}}, arb_idx};
-    axi_wr_data[0]  = {(CVA6Cfg.AxiDataWidth/riscv::XLEN){dcache_data.data}};
+    axi_wr_data[0]  = {(CVA6Cfg.AxiDataWidth/CVA6Cfg.XLEN){dcache_data.data}};
     axi_wr_user[0]  = dcache_data.user;
     // Cast to AXI address width
-    axi_wr_addr  = {{CVA6Cfg.AxiAddrWidth-riscv::PLEN{1'b0}}, dcache_data.paddr};
+    axi_wr_addr  = {{CVA6Cfg.AxiAddrWidth-CVA6Cfg.PLEN{1'b0}}, dcache_data.paddr};
     axi_wr_size  = dcache_data.size;
     axi_wr_req   = 1'b0;
     axi_wr_blen  = '0;// single word writes
@@ -166,7 +166,7 @@ module wt_axi_adapter
     // arbiter mux
     if (arb_idx) begin
       // Cast to AXI address width
-      axi_rd_addr = {{CVA6Cfg.AxiAddrWidth - riscv::PLEN{1'b0}}, dcache_data.paddr};
+      axi_rd_addr = {{CVA6Cfg.AxiAddrWidth - CVA6Cfg.PLEN{1'b0}}, dcache_data.paddr};
       // If dcache_data.size MSB is set, we want to read as much as possible
       axi_rd_size = dcache_data.size[2] ? MaxNumWords[2:0] : dcache_data.size;
       if (dcache_data.size[2]) begin
@@ -174,7 +174,7 @@ module wt_axi_adapter
       end
     end else begin
       // Cast to AXI address width
-      axi_rd_addr = {{CVA6Cfg.AxiAddrWidth - riscv::PLEN{1'b0}}, icache_data.paddr};
+      axi_rd_addr = {{CVA6Cfg.AxiAddrWidth - CVA6Cfg.PLEN{1'b0}}, icache_data.paddr};
       axi_rd_size = MaxNumWords[2:0];  // always request max number of words in case of ifill
       if (!icache_data.nc) begin
         axi_rd_blen = AxiRdBlenIcache[$clog2(AxiNumWords)-1:0];
@@ -210,7 +210,7 @@ module wt_axi_adapter
               2'b10:
               axi_wr_be[0][dcache_data.paddr[$clog2(CVA6Cfg.AxiDataWidth/8)-1:0]+:4] = '1;  // word
               default:
-              if (riscv::IS_XLEN64)
+              if (CVA6Cfg.IS_XLEN64)
                 axi_wr_be[0][dcache_data.paddr[$clog2(
                     CVA6Cfg.AxiDataWidth/8
                 )-1:0]+:8] = '1;  // dword
@@ -269,8 +269,8 @@ module wt_axi_adapter
                 };
                 AMO_AND: begin
                   // in this case we need to invert the data to get a "CLR"
-                  axi_wr_data[0] = ~{(CVA6Cfg.AxiDataWidth / riscv::XLEN) {dcache_data.data}};
-                  axi_wr_user = ~{(CVA6Cfg.AxiDataWidth / riscv::XLEN) {dcache_data.user}};
+                  axi_wr_data[0] = ~{(CVA6Cfg.AxiDataWidth / CVA6Cfg.XLEN) {dcache_data.data}};
+                  axi_wr_user = ~{(CVA6Cfg.AxiDataWidth / CVA6Cfg.XLEN) {dcache_data.user}};
                   axi_wr_atop = {
                     axi_pkg::ATOP_ATOMICLOAD, axi_pkg::ATOP_LITTLE_END, axi_pkg::ATOP_CLR
                   };
@@ -310,10 +310,10 @@ module wt_axi_adapter
     end
   end
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .dtype  (icache_req_t),
       .DEPTH  (ReqFifoDepth),
-      .FPGA_EN(CVA6Cfg.FPGA_EN)
+      .FPGA_EN(CVA6Cfg.FpgaEn)
   ) i_icache_data_fifo (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -328,10 +328,10 @@ module wt_axi_adapter
       .pop_i     (arb_ack[0])
   );
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .dtype  (dcache_req_t),
       .DEPTH  (ReqFifoDepth),
-      .FPGA_EN(CVA6Cfg.FPGA_EN)
+      .FPGA_EN(CVA6Cfg.FpgaEn)
   ) i_dcache_data_fifo (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -353,10 +353,10 @@ module wt_axi_adapter
   logic icache_rtrn_rd_en, dcache_rtrn_rd_en;
   logic icache_rtrn_vld_d, icache_rtrn_vld_q, dcache_rtrn_vld_d, dcache_rtrn_vld_q;
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .DATA_WIDTH(CVA6Cfg.MEM_TID_WIDTH),
       .DEPTH     (MetaFifoDepth),
-      .FPGA_EN   (CVA6Cfg.FPGA_EN)
+      .FPGA_EN   (CVA6Cfg.FpgaEn)
   ) i_rd_icache_id (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -371,10 +371,10 @@ module wt_axi_adapter
       .pop_i     (icache_rtrn_vld_d)
   );
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .DATA_WIDTH(CVA6Cfg.MEM_TID_WIDTH),
       .DEPTH     (MetaFifoDepth),
-      .FPGA_EN   (CVA6Cfg.FPGA_EN)
+      .FPGA_EN   (CVA6Cfg.FpgaEn)
   ) i_rd_dcache_id (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -389,10 +389,10 @@ module wt_axi_adapter
       .pop_i     (dcache_rd_pop)
   );
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .DATA_WIDTH(CVA6Cfg.MEM_TID_WIDTH),
       .DEPTH     (MetaFifoDepth),
-      .FPGA_EN   (CVA6Cfg.FPGA_EN)
+      .FPGA_EN   (CVA6Cfg.FpgaEn)
   ) i_wr_dcache_id (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -419,11 +419,11 @@ module wt_axi_adapter
   assign axi_wr_rdy = ~b_full;
   assign b_push     = axi_wr_valid & axi_wr_rdy;
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .DATA_WIDTH  (CVA6Cfg.AxiIdWidth + 1),
       .DEPTH       (MetaFifoDepth),
       .FALL_THROUGH(1'b1),
-      .FPGA_EN     (CVA6Cfg.FPGA_EN)
+      .FPGA_EN     (CVA6Cfg.FpgaEn)
   ) i_b_fifo (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),

@@ -22,9 +22,10 @@ package cva6_config_pkg;
   localparam CVA6ConfigZcbExtEn = 1;
   localparam CVA6ConfigZcmpExtEn = 0;
   localparam CVA6ConfigAExtEn = 0;
+  localparam CVA6ConfigHExtEn = 0;
   localparam CVA6ConfigBExtEn = 1;
   localparam CVA6ConfigVExtEn = 0;
-  localparam CVA6ConfigZiCondExtEn = 0;
+  localparam CVA6ConfigRVZiCond = 0;
 
   localparam CVA6ConfigAxiIdWidth = 4;
   localparam CVA6ConfigAxiAddrWidth = 64;
@@ -46,10 +47,11 @@ package cva6_config_pkg;
 
   localparam CVA6ConfigWtDcacheWbufDepth = 2;
 
+  localparam CVA6ConfigSuperscalarEn = 0;
   localparam CVA6ConfigNrCommitPorts = 1;
   localparam CVA6ConfigNrScoreboardEntries = 4;
 
-  localparam CVA6ConfigFPGAEn = 0;
+  localparam CVA6ConfigFpgaEn = 0;
 
   localparam CVA6ConfigNrLoadPipeRegs = 0;
   localparam CVA6ConfigNrStorePipeRegs = 0;
@@ -75,7 +77,8 @@ package cva6_config_pkg;
   localparam CVA6ConfigRvfiTrace = 1;
 
   localparam config_pkg::cva6_user_cfg_t cva6_cfg = '{
-      FPGA_EN: bit'(CVA6ConfigFPGAEn),
+      XLEN: unsigned'(CVA6ConfigXlen),
+      FpgaEn: bit'(CVA6ConfigFpgaEn),
       NrCommitPorts: unsigned'(CVA6ConfigNrCommitPorts),
       AxiAddrWidth: unsigned'(CVA6ConfigAxiAddrWidth),
       AxiDataWidth: unsigned'(CVA6ConfigAxiDataWidth),
@@ -91,11 +94,12 @@ package cva6_config_pkg;
       RVB: bit'(CVA6ConfigBExtEn),
       RVV: bit'(CVA6ConfigVExtEn),
       RVC: bit'(CVA6ConfigCExtEn),
+      RVH: bit'(CVA6ConfigHExtEn),
       RVZCB: bit'(CVA6ConfigZcbExtEn),
       RVZCMP: bit'(CVA6ConfigZcmpExtEn),
       XFVec: bit'(CVA6ConfigFVecEn),
       CvxifEn: bit'(CVA6ConfigCvxifEn),
-      ZiCondExtEn: bit'(CVA6ConfigZiCondExtEn),
+      RVZiCond: bit'(CVA6ConfigRVZiCond),
       NrScoreboardEntries: unsigned'(CVA6ConfigNrScoreboardEntries),
       RVS: bit'(0),
       RVU: bit'(0),

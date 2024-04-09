@@ -189,7 +189,7 @@ module ariane_xilinx (
 // CVA6 Xilinx configuration
 function automatic config_pkg::cva6_cfg_t build_fpga_config(config_pkg::cva6_user_cfg_t CVA6UserCfg);
   config_pkg::cva6_user_cfg_t cfg = CVA6UserCfg;
-  cfg.ZiCondExtEn = bit'(0);
+  cfg.RVZiCond = bit'(0);
   cfg.NrNonIdempotentRules = unsigned'(1);
   cfg.NonIdempotentAddrBase = 1024'({64'b0});
   cfg.NonIdempotentLength = 1024'({ariane_soc::DRAMBase});
@@ -213,7 +213,7 @@ localparam AxiAddrWidth = 64;
 localparam AxiDataWidth = 64;
 localparam AxiIdWidthMaster = 4;
 localparam AxiIdWidthSlaves = AxiIdWidthMaster + $clog2(NBSlave); // 5
-localparam AxiUserWidth = ariane_pkg::AXI_USER_WIDTH;
+localparam AxiUserWidth = CVA6Cfg.AxiUserWidth;
 
 `AXI_TYPEDEF_ALL(axi_slave,
                  logic [    AxiAddrWidth-1:0],
@@ -237,8 +237,8 @@ AXI_BUS #(
 ) master[ariane_soc::NB_PERIPHERALS-1:0]();
 
 AXI_BUS #(
-    .AXI_ADDR_WIDTH ( riscv::XLEN      ),
-    .AXI_DATA_WIDTH ( riscv::XLEN      ),
+    .AXI_ADDR_WIDTH ( CVA6Cfg.XLEN      ),
+    .AXI_DATA_WIDTH ( CVA6Cfg.XLEN      ),
     .AXI_ID_WIDTH   ( AxiIdWidthSlaves ),
     .AXI_USER_WIDTH ( AxiUserWidth     )
 ) master_to_dm[0:0]();
@@ -391,24 +391,24 @@ ariane_axi::resp_t   dm_axi_m_resp;
 
 logic                      dm_slave_req;
 logic                      dm_slave_we;
-logic [riscv::XLEN-1:0]    dm_slave_addr;
-logic [riscv::XLEN/8-1:0]  dm_slave_be;
-logic [riscv::XLEN-1:0]    dm_slave_wdata;
-logic [riscv::XLEN-1:0]    dm_slave_rdata;
+logic [CVA6Cfg.XLEN-1:0]    dm_slave_addr;
+logic [CVA6Cfg.XLEN/8-1:0]  dm_slave_be;
+logic [CVA6Cfg.XLEN-1:0]    dm_slave_wdata;
+logic [CVA6Cfg.XLEN-1:0]    dm_slave_rdata;
 
 logic                      dm_master_req;
-logic [riscv::XLEN-1:0]    dm_master_add;
+logic [CVA6Cfg.XLEN-1:0]    dm_master_add;
 logic                      dm_master_we;
-logic [riscv::XLEN-1:0]    dm_master_wdata;
-logic [riscv::XLEN/8-1:0]  dm_master_be;
+logic [CVA6Cfg.XLEN-1:0]    dm_master_wdata;
+logic [CVA6Cfg.XLEN/8-1:0]  dm_master_be;
 logic                      dm_master_gnt;
 logic                      dm_master_r_valid;
-logic [riscv::XLEN-1:0]    dm_master_r_rdata;
+logic [CVA6Cfg.XLEN-1:0]    dm_master_r_rdata;
 
 // debug module
 dm_top #(
     .NrHarts          ( 1                 ),
-    .BusWidth         ( riscv::XLEN      ),
+    .BusWidth         ( CVA6Cfg.XLEN      ),
     .SelectableHarts  ( 1'b1              )
 ) i_dm_top (
     .clk_i            ( clk               ),
@@ -444,8 +444,8 @@ dm_top #(
 
 axi2mem #(
     .AXI_ID_WIDTH   ( AxiIdWidthSlaves    ),
-    .AXI_ADDR_WIDTH ( riscv::XLEN        ),
-    .AXI_DATA_WIDTH ( riscv::XLEN        ),
+    .AXI_ADDR_WIDTH ( CVA6Cfg.XLEN        ),
+    .AXI_DATA_WIDTH ( CVA6Cfg.XLEN        ),
     .AXI_USER_WIDTH ( AxiUserWidth        )
 ) i_dm_axi2mem (
     .clk_i      ( clk                       ),
@@ -459,7 +459,7 @@ axi2mem #(
     .data_i     ( dm_slave_rdata            )
 );
 
-if (riscv::XLEN==32 ) begin
+if (CVA6Cfg.XLEN==32 ) begin
 
     assign master_to_dm[0].aw_user = '0;
     assign master_to_dm[0].w_user = '0;
@@ -613,11 +613,11 @@ end
 
 logic [1:0]    axi_adapter_size;
 
-assign axi_adapter_size = (riscv::XLEN == 64) ? 2'b11 : 2'b10;
+assign axi_adapter_size = (CVA6Cfg.XLEN == 64) ? 2'b11 : 2'b10;
 
 axi_adapter #(
     .CVA6Cfg               ( CVA6Cfg                  ),
-    .DATA_WIDTH            ( riscv::XLEN              ),
+    .DATA_WIDTH            ( CVA6Cfg.XLEN              ),
     .axi_req_t             ( ariane_axi::req_t        ),
     .axi_rsp_t             ( ariane_axi::resp_t       )
 ) i_dm_axi_master (
@@ -642,7 +642,7 @@ axi_adapter #(
     .axi_resp_i            ( dm_axi_m_resp             )
 );
 
-if (riscv::XLEN==32 ) begin
+if (CVA6Cfg.XLEN==32 ) begin
     logic [31 : 0] dm_master_m_awaddr;
     logic [31 : 0] dm_master_m_araddr;
 
@@ -789,6 +789,7 @@ axi_slave_req_t  axi_clint_req;
 axi_slave_resp_t axi_clint_resp;
 
 clint #(
+    .CVA6Cfg        ( CVA6Cfg          ),
     .AXI_ADDR_WIDTH ( AxiAddrWidth     ),
     .AXI_DATA_WIDTH ( AxiDataWidth     ),
     .AXI_ID_WIDTH   ( AxiIdWidthSlaves ),
@@ -829,7 +830,7 @@ axi2mem #(
     .data_i ( rom_rdata               )
 );
 
-if (riscv::XLEN==32 ) begin
+if (CVA6Cfg.XLEN==32 ) begin
     bootrom_32 i_bootrom (
         .clk_i   ( clk       ),
         .req_i   ( rom_req   ),

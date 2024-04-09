@@ -27,8 +27,8 @@ module acc_dispatcher
       logic                             req_valid;
       logic                             resp_ready;
       riscv::instruction_t              insn;
-      logic [riscv::XLEN-1:0]           rs1;
-      logic [riscv::XLEN-1:0]           rs2;
+      logic [CVA6Cfg.XLEN-1:0]          rs1;
+      logic [CVA6Cfg.XLEN-1:0]          rs2;
       fpnew_pkg::roundmode_e            frm;
       logic [CVA6Cfg.TRANS_ID_BITS-1:0] trans_id;
       logic                             store_pending;
@@ -40,7 +40,7 @@ module acc_dispatcher
     parameter type acc_resp_t = struct packed {
       logic                             req_ready;
       logic                             resp_valid;
-      logic [riscv::XLEN-1:0]           result;
+      logic [CVA6Cfg.XLEN-1:0]          result;
       logic [CVA6Cfg.TRANS_ID_BITS-1:0] trans_id;
       logic                             error;
       // Metadata
@@ -66,7 +66,7 @@ module acc_dispatcher
     input priv_lvl_t ld_st_priv_lvl_i,
     input logic sum_i,
     input pmpcfg_t [15:0] pmpcfg_i,
-    input logic [15:0][PLEN-3:0] pmpaddr_i,
+    input logic [15:0][CVA6Cfg.PLEN-3:0] pmpaddr_i,
     input logic [2:0] fcsr_frm_i,
     output logic dirty_v_state_o,
     // Interface with the issue stage
@@ -76,7 +76,7 @@ module acc_dispatcher
     input fu_data_t fu_data_i,
     input scoreboard_entry_t [CVA6Cfg.NrCommitPorts-1:0] commit_instr_i,
     output logic [CVA6Cfg.TRANS_ID_BITS-1:0] acc_trans_id_o,
-    output logic [riscv::XLEN-1:0] acc_result_o,
+    output logic [CVA6Cfg.XLEN-1:0] acc_result_o,
     output logic acc_valid_o,
     output exception_t acc_exception_o,
     // Interface with the execute stage
@@ -90,6 +90,7 @@ module acc_dispatcher
     input dcache_req_i_t [2:0] dcache_req_ports_i,
     // Interface with the controller
     output logic ctrl_halt_o,
+    input logic [11:0] csr_addr_i,
     input logic flush_unissued_instr_i,
     input logic flush_ex_i,
     output logic flush_pipeline_o,
@@ -165,11 +166,11 @@ module acc_dispatcher
 
   assign acc_data = acc_valid_ex_o ? fu_data_i : '0;
 
-  fifo_v3 #(
+  cva6_fifo_v3 #(
       .DEPTH       (InstructionQueueDepth),
       .FALL_THROUGH(1'b1),
       .dtype       (fu_data_t),
-      .FPGA_EN     (CVA6Cfg.FPGA_EN)
+      .FPGA_EN     (CVA6Cfg.FpgaEn)
   ) i_acc_insn_queue (
       .clk_i     (clk_i),
       .rst_ni    (rst_ni),
@@ -297,22 +298,29 @@ module acc_dispatcher
   logic acc_st_disp;
 
   // Unpack the accelerator response
-  assign acc_trans_id_o       = acc_resp_i.trans_id;
-  assign acc_result_o         = acc_resp_i.result;
-  assign acc_valid_o          = acc_resp_i.resp_valid;
-  assign acc_exception_o      = '{cause: riscv::ILLEGAL_INSTR, tval : '0, valid: acc_resp_i.error};
-  assign acc_fflags_valid_o   = acc_resp_i.fflags_valid;
-  assign acc_fflags_o         = acc_resp_i.fflags;
+  assign acc_trans_id_o = acc_resp_i.trans_id;
+  assign acc_result_o = acc_resp_i.result;
+  assign acc_valid_o = acc_resp_i.resp_valid;
+  assign acc_exception_o = '{
+          cause: riscv::ILLEGAL_INSTR,
+          tval : '0,
+          tval2 : '0,
+          tinst : '0,
+          gva : '0,
+          valid: acc_resp_i.error
+      };
+  assign acc_fflags_valid_o = acc_resp_i.fflags_valid;
+  assign acc_fflags_o = acc_resp_i.fflags;
   // Always ready to receive responses
   assign acc_req_o.resp_ready = 1'b1;
 
   // Signal dispatched load/store to issue stage
-  assign acc_ld_disp          = acc_req_valid && (acc_insn_queue_o.operation == ACCEL_OP_LOAD);
-  assign acc_st_disp          = acc_req_valid && (acc_insn_queue_o.operation == ACCEL_OP_STORE);
+  assign acc_ld_disp = acc_req_valid && (acc_insn_queue_o.operation == ACCEL_OP_LOAD);
+  assign acc_st_disp = acc_req_valid && (acc_insn_queue_o.operation == ACCEL_OP_STORE);
 
   // Cache invalidation
-  assign inval_valid_o        = acc_resp_i.inval_valid;
-  assign inval_addr_o         = acc_resp_i.inval_addr;
+  assign inval_valid_o = acc_resp_i.inval_valid;
+  assign inval_addr_o = acc_resp_i.inval_addr;
 
   /**************************
    *  Accelerator commit    *

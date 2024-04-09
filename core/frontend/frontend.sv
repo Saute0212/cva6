@@ -29,7 +29,7 @@ module frontend
     // Asynchronous reset active low - SUBSYSTEM
     input logic rst_ni,
     // Next PC when reset - SUBSYSTEM
-    input logic [riscv::VLEN-1:0] boot_addr_i,
+    input logic [CVA6Cfg.VLEN-1:0] boot_addr_i,
     // Flush branch prediction - zero
     input logic flush_bp_i,
     // Flush requested by FENCE, mis-predict and exception - CONTROLLER
@@ -39,7 +39,7 @@ module frontend
     // Set COMMIT PC as next PC requested by FENCE, CSR side-effect and Accelerate port - CONTROLLER
     input logic set_pc_commit_i,
     // COMMIT PC - COMMIT
-    input logic [riscv::VLEN-1:0] pc_commit_i,
+    input logic [CVA6Cfg.VLEN-1:0] pc_commit_i,
     // Exception event - COMMIT
     input logic ex_valid_i,
     // Mispredict event and next PC - EXECUTE
@@ -47,9 +47,9 @@ module frontend
     // Return from exception event - CSR
     input logic eret_i,
     // Next PC when returning from exception - CSR
-    input logic [riscv::VLEN-1:0] epc_i,
+    input logic [CVA6Cfg.VLEN-1:0] epc_i,
     // Next PC when jumping into exception - CSR
-    input logic [riscv::VLEN-1:0] trap_vector_base_i,
+    input logic [CVA6Cfg.VLEN-1:0] trap_vector_base_i,
     // Debug event - CSR
     input logic set_debug_pc_i,
     // Debug mode state - CSR
@@ -67,32 +67,35 @@ module frontend
 );
 
   localparam type bht_update_t = struct packed {
-    logic                   valid;
-    logic [riscv::VLEN-1:0] pc;     // update at PC
-    logic                   taken;
+    logic                    valid;
+    logic [CVA6Cfg.VLEN-1:0] pc;     // update at PC
+    logic                    taken;
   };
 
   localparam type btb_prediction_t = struct packed {
-    logic                   valid;
-    logic [riscv::VLEN-1:0] target_address;
+    logic                    valid;
+    logic [CVA6Cfg.VLEN-1:0] target_address;
   };
 
   localparam type btb_update_t = struct packed {
-    logic                   valid;
-    logic [riscv::VLEN-1:0] pc;              // update at PC
-    logic [riscv::VLEN-1:0] target_address;
+    logic                    valid;
+    logic [CVA6Cfg.VLEN-1:0] pc;              // update at PC
+    logic [CVA6Cfg.VLEN-1:0] target_address;
   };
 
   localparam type ras_t = struct packed {
-    logic                   valid;
-    logic [riscv::VLEN-1:0] ra;
+    logic                    valid;
+    logic [CVA6Cfg.VLEN-1:0] ra;
   };
 
   // Instruction Cache Registers, from I$
   logic                            [    CVA6Cfg.FETCH_WIDTH-1:0] icache_data_q;
   logic                                                          icache_valid_q;
   ariane_pkg::frontend_exception_t                               icache_ex_valid_q;
-  logic                            [            riscv::VLEN-1:0] icache_vaddr_q;
+  logic                            [           CVA6Cfg.VLEN-1:0] icache_vaddr_q;
+  logic                            [          CVA6Cfg.GPLEN-1:0] icache_gpaddr_q;
+  logic                            [                       31:0] icache_tinst_q;
+  logic                                                          icache_gva_q;
   logic                                                          instr_queue_ready;
   logic                            [CVA6Cfg.INSTR_PER_FETCH-1:0] instr_queue_consumed;
   // upper-most branch-prediction from last cycle
@@ -100,13 +103,13 @@ module frontend
   bht_prediction_t                                               bht_q;
   // instruction fetch is ready
   logic                                                          if_ready;
-  logic [riscv::VLEN-1:0] npc_d, npc_q;  // next PC
+  logic [CVA6Cfg.VLEN-1:0] npc_d, npc_q;  // next PC
 
   // indicates whether we come out of reset (then we need to load boot_addr_i)
   logic                                       npc_rst_load_q;
 
   logic                                       replay;
-  logic [                    riscv::VLEN-1:0] replay_addr;
+  logic [                   CVA6Cfg.VLEN-1:0] replay_addr;
 
   // shift amount
   logic [$clog2(CVA6Cfg.INSTR_PER_FETCH)-1:0] shamt;
@@ -122,29 +125,29 @@ module frontend
   // -----------------------
   // RVI ctrl flow prediction
   logic [CVA6Cfg.INSTR_PER_FETCH-1:0] rvi_return, rvi_call, rvi_branch, rvi_jalr, rvi_jump;
-  logic [CVA6Cfg.INSTR_PER_FETCH-1:0][riscv::VLEN-1:0] rvi_imm;
+  logic [CVA6Cfg.INSTR_PER_FETCH-1:0][CVA6Cfg.VLEN-1:0] rvi_imm;
   // RVC branching
   logic [CVA6Cfg.INSTR_PER_FETCH-1:0] rvc_branch, rvc_jump, rvc_jr, rvc_return, rvc_jalr, rvc_call;
-  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0][riscv::VLEN-1:0] rvc_imm;
+  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0][CVA6Cfg.VLEN-1:0] rvc_imm;
   // re-aligned instruction and address (coming from cache - combinationally)
-  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0][           31:0] instr;
-  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0][riscv::VLEN-1:0] addr;
-  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0]                  instruction_valid;
+  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0][            31:0] instr;
+  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0][CVA6Cfg.VLEN-1:0] addr;
+  logic            [CVA6Cfg.INSTR_PER_FETCH-1:0]                   instruction_valid;
   // BHT, BTB and RAS prediction
-  bht_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                  bht_prediction;
-  btb_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                  btb_prediction;
-  bht_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                  bht_prediction_shifted;
-  btb_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                  btb_prediction_shifted;
-  ras_t                                                           ras_predict;
-  logic            [            riscv::VLEN-1:0]                  vpc_btb;
+  bht_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                   bht_prediction;
+  btb_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                   btb_prediction;
+  bht_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                   bht_prediction_shifted;
+  btb_prediction_t [CVA6Cfg.INSTR_PER_FETCH-1:0]                   btb_prediction_shifted;
+  ras_t                                                            ras_predict;
+  logic            [           CVA6Cfg.VLEN-1:0]                   vpc_btb;
 
   // branch-predict update
-  logic                                                           is_mispredict;
+  logic                                                            is_mispredict;
   logic ras_push, ras_pop;
-  logic [            riscv::VLEN-1:0] ras_update;
+  logic [           CVA6Cfg.VLEN-1:0] ras_update;
 
   // Instruction FIFO
-  logic [            riscv::VLEN-1:0] predict_address;
+  logic [           CVA6Cfg.VLEN-1:0] predict_address;
   cf_t  [CVA6Cfg.INSTR_PER_FETCH-1:0] cf_type;
   logic [CVA6Cfg.INSTR_PER_FETCH-1:0] taken_rvi_cf;
   logic [CVA6Cfg.INSTR_PER_FETCH-1:0] taken_rvc_cf;
@@ -165,7 +168,6 @@ module frontend
       .addr_o             (addr),
       .instr_o            (instr)
   );
-
   // --------------------
   // Branch Prediction
   // --------------------
@@ -269,8 +271,8 @@ module frontend
             // otherwise default to static prediction
           end else begin
             // set if immediate is negative - static prediction
-            taken_rvi_cf[i] = rvi_branch[i] & rvi_imm[i][riscv::VLEN-1];
-            taken_rvc_cf[i] = rvc_branch[i] & rvc_imm[i][riscv::VLEN-1];
+            taken_rvi_cf[i] = rvi_branch[i] & rvi_imm[i][CVA6Cfg.VLEN-1];
+            taken_rvc_cf[i] = rvc_branch[i] & rvc_imm[i][CVA6Cfg.VLEN-1];
           end
           if (taken_rvi_cf[i] || taken_rvc_cf[i]) begin
             cf_type[i] = ariane_pkg::Branch;
@@ -347,7 +349,7 @@ module frontend
   // Mis-predict handling is a little bit different
   // select PC a.k.a PC Gen
   always_comb begin : npc_select
-    automatic logic [riscv::VLEN-1:0] fetch_address;
+    automatic logic [CVA6Cfg.VLEN-1:0] fetch_address;
     // check whether we come out of reset
     // this is a workaround. some tools have issues
     // having boot_addr_i in the asynchronous
@@ -369,7 +371,9 @@ module frontend
     end
     // 1. Default assignment
     if (if_ready) begin
-      npc_d = {fetch_address[riscv::VLEN-1:2], 2'b0} + 'h4;
+      npc_d = {
+        fetch_address[CVA6Cfg.VLEN-1:CVA6Cfg.FETCH_ALIGN_BITS] + 1, {CVA6Cfg.FETCH_ALIGN_BITS{1'b0}}
+      };
     end
     // 2. Replay instruction fetch
     if (replay) begin
@@ -397,12 +401,12 @@ module frontend
     // instruction in the commit stage
     // TODO(zarubaf) This adder can at least be merged with the one in the csr_regfile stage
     if (set_pc_commit_i) begin
-      npc_d = pc_commit_i + (halt_i ? '0 : {{riscv::VLEN - 3{1'b0}}, 3'b100});
+      npc_d = pc_commit_i + (halt_i ? '0 : {{CVA6Cfg.VLEN - 3{1'b0}}, 3'b100});
     end
     // 7. Debug
     // enter debug on a hard-coded base-address
     if (CVA6Cfg.DebugEn && set_debug_pc_i)
-      npc_d = CVA6Cfg.DmBaseAddress[riscv::VLEN-1:0] + CVA6Cfg.HaltAddress[riscv::VLEN-1:0];
+      npc_d = CVA6Cfg.DmBaseAddress[CVA6Cfg.VLEN-1:0] + CVA6Cfg.HaltAddress[CVA6Cfg.VLEN-1:0];
     icache_dreq_o.vaddr = fetch_address;
   end
 
@@ -418,6 +422,9 @@ module frontend
       icache_data_q     <= '0;
       icache_valid_q    <= 1'b0;
       icache_vaddr_q    <= 'b0;
+      icache_gpaddr_q   <= 'b0;
+      icache_tinst_q    <= 'b0;
+      icache_gva_q      <= 1'b0;
       icache_ex_valid_q <= ariane_pkg::FE_NONE;
       btb_q             <= '0;
       bht_q             <= '0;
@@ -429,8 +436,20 @@ module frontend
       if (icache_dreq_i.valid) begin
         icache_data_q  <= icache_data;
         icache_vaddr_q <= icache_dreq_i.vaddr;
+        if (CVA6Cfg.RVH) begin
+          icache_gpaddr_q <= icache_dreq_i.ex.tval2[CVA6Cfg.GPLEN-1:0];
+          icache_tinst_q  <= icache_dreq_i.ex.tinst;
+          icache_gva_q    <= icache_dreq_i.ex.gva;
+        end else begin
+          icache_gpaddr_q <= 'b0;
+          icache_tinst_q  <= 'b0;
+          icache_gva_q    <= 1'b0;
+        end
+
         // Map the only three exceptions which can occur in the frontend to a two bit enum
-        if (ariane_pkg::MMU_PRESENT && icache_dreq_i.ex.cause == riscv::INSTR_PAGE_FAULT) begin
+        if (ariane_pkg::MMU_PRESENT && icache_dreq_i.ex.cause == riscv::INSTR_GUEST_PAGE_FAULT) begin
+          icache_ex_valid_q <= ariane_pkg::FE_INSTR_GUEST_PAGE_FAULT;
+        end else if (ariane_pkg::MMU_PRESENT && icache_dreq_i.ex.cause == riscv::INSTR_PAGE_FAULT) begin
           icache_ex_valid_q <= ariane_pkg::FE_INSTR_PAGE_FAULT;
         end else if (icache_dreq_i.ex.cause == riscv::INSTR_ACCESS_FAULT) begin
           icache_ex_valid_q <= ariane_pkg::FE_INSTR_ACCESS_FAULT;
@@ -465,7 +484,7 @@ module frontend
   //For FPGA, BTB is implemented in read synchronous BRAM
   //while for ASIC, BTB is implemented in D flip-flop
   //and can be read at the same cycle.
-  assign vpc_btb = (CVA6Cfg.FPGA_EN) ? icache_dreq_i.vaddr : icache_vaddr_q;
+  assign vpc_btb = (CVA6Cfg.FpgaEn) ? icache_dreq_i.vaddr : icache_vaddr_q;
 
   if (CVA6Cfg.BTBEntries == 0) begin
     assign btb_prediction = '0;
@@ -538,6 +557,9 @@ module frontend
       .addr_i             (addr),                  // from re-aligner
       .exception_i        (icache_ex_valid_q),     // from I$
       .exception_addr_i   (icache_vaddr_q),
+      .exception_gpaddr_i (icache_gpaddr_q),
+      .exception_tinst_i  (icache_tinst_q),
+      .exception_gva_i    (icache_gva_q),
       .predict_address_i  (predict_address),
       .cf_type_i          (cf_type),
       .valid_i            (instruction_valid),     // from re-aligner

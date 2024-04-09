@@ -33,10 +33,10 @@ module wt_dcache_ctrl
     output logic miss_req_o,
     input logic miss_ack_i,
     output logic miss_we_o,  // unused (set to 0)
-    output logic [riscv::XLEN-1:0] miss_wdata_o,  // unused (set to 0)
+    output logic [CVA6Cfg.XLEN-1:0] miss_wdata_o,  // unused (set to 0)
     output logic [CVA6Cfg.DCACHE_USER_WIDTH-1:0] miss_wuser_o,  // unused (set to 0)
     output logic [CVA6Cfg.DCACHE_SET_ASSOC-1:0] miss_vld_bits_o,  // valid bits at the missed index
-    output logic [riscv::PLEN-1:0] miss_paddr_o,
+    output logic [CVA6Cfg.PLEN-1:0] miss_paddr_o,
     output logic miss_nc_o,  // request to I/O space
     output logic [2:0] miss_size_o,  // 00: 1byte, 01: 2byte, 10: 4byte, 11: 8byte, 111: cacheline
     output logic [CVA6Cfg.MEM_TID_WIDTH-1:0] miss_id_o,  // set to constant ID
@@ -51,7 +51,7 @@ module wt_dcache_ctrl
     output logic rd_req_o,  // read the word at offset off_i[:3] in all ways
     output logic rd_tag_only_o,  // set to zero here
     input logic rd_ack_i,
-    input logic [riscv::XLEN-1:0] rd_data_i,
+    input logic [CVA6Cfg.XLEN-1:0] rd_data_i,
     input logic [CVA6Cfg.DCACHE_USER_WIDTH-1:0] rd_user_i,
     input logic [CVA6Cfg.DCACHE_SET_ASSOC-1:0] rd_vld_bits_i,
     input logic [CVA6Cfg.DCACHE_SET_ASSOC-1:0] rd_hit_oh_i

@@ -29,7 +29,6 @@
 package ariane_pkg;
 
   // TODO: Slowly move those parameters to the new system.
-  localparam ASID_WIDTH = (riscv::XLEN == 64) ? 16 : 1;
   localparam BITS_SATURATION_COUNTER = 2;
 
   localparam ISSUE_WIDTH = 1;
@@ -127,7 +126,7 @@ package ariane_pkg;
     | riscv::SSTATUS_UPIE
     | riscv::SSTATUS_SPIE
     | riscv::SSTATUS_UXL
-    | riscv::sstatus_sd(riscv::IS_XLEN64);
+    | riscv::sstatus_sd(Cfg.IS_XLEN64);
   endfunction
 
   localparam logic [63:0] SMODE_STATUS_WRITE_MASK = riscv::SSTATUS_SIE
@@ -136,12 +135,29 @@ package ariane_pkg;
                                                     | riscv::SSTATUS_FS
                                                     | riscv::SSTATUS_SUM
                                                     | riscv::SSTATUS_MXR;
+
+  localparam logic [63:0] HSTATUS_WRITE_MASK      = riscv::HSTATUS_VSBE
+                                                    | riscv::HSTATUS_GVA
+                                                    | riscv::HSTATUS_SPV
+                                                    | riscv::HSTATUS_SPVP
+                                                    | riscv::HSTATUS_HU
+                                                    | riscv::HSTATUS_VTVM
+                                                    | riscv::HSTATUS_VTW
+                                                    | riscv::HSTATUS_VTSR;
+
+  // hypervisor delegable interrupts
+  function automatic logic [31:0] hs_deleg_interrupts(config_pkg::cva6_cfg_t Cfg);
+    return riscv::MIP_VSSIP | riscv::MIP_VSTIP | riscv::MIP_VSEIP;
+  endfunction
+
+  // virtual supervisor delegable interrupts
+  function automatic logic [31:0] vs_deleg_interrupts(config_pkg::cva6_cfg_t Cfg);
+    return riscv::MIP_VSSIP | riscv::MIP_VSTIP | riscv::MIP_VSEIP;
+  endfunction
+
   // ---------------
   // AXI
   // ---------------
-
-  localparam AXI_USER_EN = cva6_config_pkg::CVA6ConfigDataUserEn | cva6_config_pkg::CVA6ConfigFetchUserEn;
-  localparam AXI_USER_WIDTH = cva6_config_pkg::CVA6ConfigDataUserWidth;
 
   typedef enum logic {
     SINGLE_REQ,
@@ -154,6 +170,8 @@ package ariane_pkg;
 
   // leave as is (fails with >8 entries and wider fetch width)
   localparam int unsigned FETCH_FIFO_DEPTH = 4;
+
+  localparam int unsigned SUPERSCALAR = cva6_config_pkg::CVA6ConfigSuperscalarEn;
 
   typedef enum logic [2:0] {
     NoCF,    // No control flow prediction
@@ -290,6 +308,8 @@ package ariane_pkg;
     FENCE,
     FENCE_I,
     SFENCE_VMA,
+    HFENCE_VVMA,
+    HFENCE_GVMA,
     CSR_WRITE,
     CSR_READ,
     CSR_SET,
@@ -306,6 +326,20 @@ package ariane_pkg;
     LB,
     SB,
     LBU,
+    // Hypervisor Virtual-Machine Load and Store Instructions
+    HLV_B,
+    HLV_BU,
+    HLV_H,
+    HLV_HU,
+    HLVX_HU,
+    HLV_W,
+    HLVX_WU,
+    HSV_B,
+    HSV_H,
+    HSV_W,
+    HLV_WU,
+    HLV_D,
+    HSV_D,
     // Atomic Memory Operations
     AMO_LRW,
     AMO_LRD,
@@ -591,7 +625,8 @@ package ariane_pkg;
   typedef enum logic [1:0] {
     FE_NONE,
     FE_INSTR_ACCESS_FAULT,
-    FE_INSTR_PAGE_FAULT
+    FE_INSTR_PAGE_FAULT,
+    FE_INSTR_GUEST_PAGE_FAULT
   } frontend_exception_t;
 
   // AMO request going to cache. this request is unconditionally valid as soon
@@ -617,9 +652,8 @@ package ariane_pkg;
   // ----------------------
   // Arithmetic Functions
   // ----------------------
-  function automatic logic [riscv::XLEN-1:0] sext32(config_pkg::cva6_cfg_t Cfg,
-                                                    logic [31:0] operand);
-    return {{riscv::XLEN - 32{operand[31]}}, operand[31:0]};
+  function automatic logic [63:0] sext32to64(logic [31:0] operand);
+    return {{32{operand[31]}}, operand[31:0]};
   endfunction
 
   // ----------------------
@@ -700,7 +734,7 @@ package ariane_pkg;
   // ----------------------
   function automatic logic [1:0] extract_transfer_size(fu_op op);
     case (op)
-      LD, SD, FLD, FSD,
+      LD, HLV_D, SD, HSV_D, FLD, FSD,
             AMO_LRD,   AMO_SCD,
             AMO_SWAPD, AMO_ADDD,
             AMO_ANDD,  AMO_ORD,
@@ -709,7 +743,8 @@ package ariane_pkg;
             AMO_MINDU: begin
         return 2'b11;
       end
-      LW, LWU, SW, FLW, FSW,
+      LW, LWU, HLV_W, HLV_WU, HLVX_WU,
+            SW, HSV_W, FLW, FSW,
             AMO_LRW,   AMO_SCW,
             AMO_SWAPW, AMO_ADDW,
             AMO_ANDW,  AMO_ORW,
@@ -718,9 +753,60 @@ package ariane_pkg;
             AMO_MINWU: begin
         return 2'b10;
       end
-      LH, LHU, SH, FLH, FSH: return 2'b01;
-      LB, LBU, SB, FLB, FSB: return 2'b00;
-      default:               return 2'b11;
+      LH, LHU, HLV_H, HLV_HU, HLVX_HU, SH, HSV_H, FLH, FSH: return 2'b01;
+      LB, LBU, HLV_B, HLV_BU, SB, HSV_B, FLB, FSB:          return 2'b00;
+      default:                                              return 2'b11;
     endcase
   endfunction
+  // ----------------------
+  // MMU Functions
+  // ----------------------
+
+  // checks if final translation page size is 1G when H-extension is enabled
+  function automatic logic is_trans_1G(input logic s_st_enbl, input logic g_st_enbl,
+                                       input logic is_s_1G, input logic is_g_1G);
+    return (((is_s_1G && s_st_enbl) || !s_st_enbl) && ((is_g_1G && g_st_enbl) || !g_st_enbl));
+  endfunction : is_trans_1G
+
+  // checks if final translation page size is 2M when H-extension is enabled
+  function automatic logic is_trans_2M(input logic s_st_enbl, input logic g_st_enbl,
+                                       input logic is_s_1G, input logic is_s_2M,
+                                       input logic is_g_1G, input logic is_g_2M);
+    return  (s_st_enbl && g_st_enbl) ? 
+                ((is_s_2M && (is_g_1G || is_g_2M)) || (is_g_2M && (is_s_1G || is_s_2M))) :
+                ((is_s_2M && s_st_enbl) || (is_g_2M && g_st_enbl));
+  endfunction : is_trans_2M
+
+  // computes the paddr based on the page size, ppn and offset
+  function automatic logic [40:0] make_gpaddr(input logic s_st_enbl, input logic is_1G,
+                                              input logic is_2M, input logic [63:0] vaddr,
+                                              input riscv::pte_t pte);
+    logic [40:0] gpaddr;
+    if (s_st_enbl) begin
+      gpaddr = {pte.ppn[28:0], vaddr[11:0]};
+      // Giga page
+      if (is_1G) gpaddr[29:12] = vaddr[29:12];
+      // Mega page
+      if (is_2M) gpaddr[20:12] = vaddr[20:12];
+    end else begin
+      gpaddr = vaddr[40:0];
+    end
+    return gpaddr;
+  endfunction : make_gpaddr
+
+  // computes the final gppn based on the guest physical address
+  function automatic logic [28:0] make_gppn(input logic s_st_enbl, input logic is_1G,
+                                            input logic is_2M, input logic [28:0] vpn,
+                                            input riscv::pte_t pte);
+    logic [28:0] gppn;
+    if (s_st_enbl) begin
+      gppn = pte.ppn[28:0];
+      if (is_2M) gppn[8:0] = vpn[8:0];
+      if (is_1G) gppn[17:0] = vpn[17:0];
+    end else begin
+      gppn = vpn;
+    end
+    return gppn;
+  endfunction : make_gppn
+
 endpackage
